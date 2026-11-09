@@ -47,7 +47,10 @@
     '<pre id="updNotes" hidden style="white-space:pre-wrap;font:inherit;font-size:13px;background:#f4f5f7;border-radius:8px;padding:8px;max-height:160px;overflow:auto;margin:0 0 10px"></pre>',
     '<div style="text-align:right"><button id="updClose" type="button">닫기</button></div>'
   ].join('');
-  document.body.appendChild(dlg);
+  // 이 스크립트는 <head>에서 실행되므로 body가 준비된 뒤에 대화상자를 붙입니다.
+  const attachDialog = () => document.body.appendChild(dlg);
+  if (document.body) attachDialog();
+  else document.addEventListener('DOMContentLoaded', attachDialog);
 
   const $ = (id) => dlg.querySelector('#' + id);
   const setStatus = (text, isError) => {
@@ -180,8 +183,8 @@
   $('updCheck').onclick = check;
   dlg.querySelector('#updClose').onclick = () => { stopPolling(); dlg.close(); };
 
+  // 이 스크립트는 안드로이드 빌드에만 들어가므로 바로 버튼을 답니다.
   function addButton() {
-    if (!nativeOk()) return;   // PC 편집기에서는 버튼을 만들지 않습니다
     const btn = document.createElement('button');
     btn.id = 'btnUpdate';
     btn.type = 'button';
