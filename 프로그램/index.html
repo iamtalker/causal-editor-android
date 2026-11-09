@@ -240,7 +240,10 @@ let graphSaveTimer = null;
 const undoStack = [], redoStack = [];
 let historyCurrent = null, historyGroup = null, historyGroupAt = 0;
 const HISTORY_LIMIT = 100;
-let zoom = 1, lastCW = 800, lastCH = 600, viewMinX = 0, viewMinY = 0;   // 확대율과 뷰박스(저장하지 않음)
+// 기본 확대율: 안드로이드 앱은 작은 화면에 맞게 shim에서 더 작은 값을 넣습니다. PC는 1입니다.
+const BASE_ZOOM = window.CAUSAL_BASE_ZOOM || 1;
+const FIT_MAX_ZOOM = window.CAUSAL_FIT_MAX_ZOOM || 2;
+let zoom = BASE_ZOOM, lastCW = 800, lastCH = 600, viewMinX = 0, viewMinY = 0;   // 확대율과 뷰박스(저장하지 않음)
 let VERSION_LIST = [];
 
 /* ---------- 데이터 ----------
@@ -928,7 +931,7 @@ function autoLayout(mode) {
 
 function fitView() {
   const st = $('#stage');
-  zoom = Math.min(2, (st.clientWidth - 24) / lastCW, (st.clientHeight - 24) / lastCH);
+  zoom = Math.min(FIT_MAX_ZOOM, (st.clientWidth - 24) / lastCW, (st.clientHeight - 24) / lastCH);
   if (!(zoom > 0)) zoom = 1;
   render();
 }
@@ -999,7 +1002,7 @@ $('#stage').addEventListener('contextmenu', e => {
       const D = dims(); addNode(point.x - D.w / 2, point.y - D.h / 2);
     });
     addCanvasMenuAction('전체 그래프 보기', fitView);
-    addCanvasMenuAction('실제 크기', () => { zoom = 1; render(); });
+    addCanvasMenuAction('실제 크기', () => { zoom = BASE_ZOOM; render(); });
     addCanvasMenuAction('도움말', () => $('#helpDlg').showModal());
   }
   menu.hidden = false;
@@ -1135,7 +1138,7 @@ $('#layoutOptions').addEventListener('keydown', e => {
 });
 document.addEventListener('mousedown', e => { if (!e.target.closest('.layout-picker') && !e.target.closest('#layoutOptions')) setLayoutOptionsOpen(false); });
 $('#btnFit').onclick = fitView;
-$('#btnZoom100').onclick = () => { zoom = 1; render(); };
+$('#btnZoom100').onclick = () => { zoom = BASE_ZOOM; render(); };
 
 // Ctrl+휠: 브라우저 배율 대신 캔버스만 조금씩 확대·축소합니다. 커서 아래의 점이 그대로 머물도록 맞춥니다.
 $('#stage').addEventListener('wheel', e => {

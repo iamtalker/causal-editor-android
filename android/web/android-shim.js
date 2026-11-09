@@ -1,5 +1,10 @@
 // 안드로이드 어댑터: 프로그램/server.js가 하던 /api/* 요청을 기기 저장소 파일 작업으로 바꿔 줍니다.
 // index.html은 PC와 같은 코드를 씁니다. 이 파일은 copy-web.js가 index.html 맨 앞에 끼워 넣습니다.
+// 작은 화면에 맞춘 확대율: 노드 상자가 휴대폰에서 너무 커 보이지 않도록 PC 기본값(1)보다 작게 둡니다.
+// index.html이 이 값을 읽습니다. 값을 바꾸면 '실제 크기'와 '전체 그래프 보기'의 최대 확대율이 함께 바뀝니다.
+window.CAUSAL_BASE_ZOOM = 0.7;
+window.CAUSAL_FIT_MAX_ZOOM = 0.7;
+
 (function () {
   const DEFAULT_DIR = '/storage/emulated/0/Documents/인과편집기';
   const ROOT = '/storage/emulated/0';
