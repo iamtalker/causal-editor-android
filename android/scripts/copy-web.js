@@ -6,20 +6,24 @@ const path = require('path');
 const ANDROID_DIR = path.resolve(__dirname, '..');
 const SRC_HTML = path.resolve(ANDROID_DIR, '..', '프로그램', 'index.html');
 const WWW = path.join(ANDROID_DIR, 'www');
-const NATIVE_SRC = path.join(ANDROID_DIR, 'native', 'DataFilesPlugin.java');
+const NATIVE_SRC_DIR = path.join(ANDROID_DIR, 'native');
 const NATIVE_DEST = path.join(ANDROID_DIR, 'android', 'app', 'src', 'main', 'java', 'com', 'causaleditor', 'app');
 
 fs.mkdirSync(WWW, { recursive: true });
 let html = fs.readFileSync(SRC_HTML, 'utf8');
 if (!html.includes('android-shim.js')) {
-  html = html.replace('<head>', '<head>\n<script src="android-shim.js"></script>');
+  html = html.replace('<head>', '<head>\n<script src="android-shim.js"></script>\n<script src="android-update.js"></script>');
 }
 fs.writeFileSync(path.join(WWW, 'index.html'), html, 'utf8');
-fs.copyFileSync(path.join(ANDROID_DIR, 'web', 'android-shim.js'), path.join(WWW, 'android-shim.js'));
+for (const name of ['android-shim.js', 'android-update.js']) {
+  fs.copyFileSync(path.join(ANDROID_DIR, 'web', name), path.join(WWW, name));
+}
 console.log('www/ 준비 완료');
 
 if (fs.existsSync(path.join(ANDROID_DIR, 'android'))) {
   fs.mkdirSync(NATIVE_DEST, { recursive: true });
-  fs.copyFileSync(NATIVE_SRC, path.join(NATIVE_DEST, 'DataFilesPlugin.java'));
+  for (const name of fs.readdirSync(NATIVE_SRC_DIR).filter(n => n.endsWith('.java'))) {
+    fs.copyFileSync(path.join(NATIVE_SRC_DIR, name), path.join(NATIVE_DEST, name));
+  }
   console.log('네이티브 플러그인 복사 완료');
 }
