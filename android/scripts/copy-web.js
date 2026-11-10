@@ -12,10 +12,10 @@ const NATIVE_DEST = path.join(ANDROID_DIR, 'android', 'app', 'src', 'main', 'jav
 fs.mkdirSync(WWW, { recursive: true });
 let html = fs.readFileSync(SRC_HTML, 'utf8');
 if (!html.includes('android-shim.js')) {
-  html = html.replace('<head>', '<head>\n<script src="android-shim.js"></script>\n<script src="android-update.js"></script>');
+  html = html.replace('<head>', '<head>\n<script src="android-shim.js"></script>\n<script src="android-update.js"></script>\n<script src="android-touch.js"></script>');
 }
 fs.writeFileSync(path.join(WWW, 'index.html'), html, 'utf8');
-for (const name of ['android-shim.js', 'android-update.js']) {
+for (const name of ['android-shim.js', 'android-update.js', 'android-touch.js']) {
   fs.copyFileSync(path.join(ANDROID_DIR, 'web', name), path.join(WWW, name));
 }
 console.log('www/ 준비 완료');
