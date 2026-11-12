@@ -179,7 +179,9 @@
       gesture = {kind: 'pan', stage, left: stage.scrollLeft, top: stage.scrollTop,
         x0: t.clientX, y0: t.clientY, moved: false, target};
     } else {
-      gesture = {kind: 'tap', x0: t.clientX, y0: t.clientY, moved: false, target};
+      // 화살표 위에서 시작해도 끌면 화면이 밀리도록 pan 정보를 함께 둡니다. 움직이지 않고 떼면 탭입니다.
+      gesture = {kind: 'tap', stage, left: stage.scrollLeft, top: stage.scrollTop,
+        x0: t.clientX, y0: t.clientY, moved: false, target};
     }
   }, {passive: true});
 
@@ -215,6 +217,7 @@
     const t = e.touches[0];
     if (!gesture.moved && Math.hypot(t.clientX - gesture.x0, t.clientY - gesture.y0) < MOVE_SLOP) return;
     gesture.moved = true;
+    if (gesture.kind === 'tap') gesture.kind = 'pan';   // 화살표 위에서 끌기 시작 = 화면 밀기
     if (gesture.kind === 'node') {
       const p = svgPoint({clientX: t.clientX, clientY: t.clientY});
       gesture.node.x = Math.max(0, p.x - gesture.dx);
