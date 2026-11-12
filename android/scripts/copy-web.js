@@ -18,6 +18,8 @@ fs.writeFileSync(path.join(WWW, 'index.html'), html, 'utf8');
 for (const name of ['android-shim.js', 'android-update.js', 'android-touch.js']) {
   fs.copyFileSync(path.join(ANDROID_DIR, 'web', name), path.join(WWW, name));
 }
+// 노드 Markdown <-> 그래프 변환기는 PC와 같은 파일을 씁니다 (index.html이 불러옵니다)
+fs.copyFileSync(path.resolve(ANDROID_DIR, '..', '프로그램', 'md-graph.js'), path.join(WWW, 'md-graph.js'));
 console.log('www/ 준비 완료');
 
 if (fs.existsSync(path.join(ANDROID_DIR, 'android'))) {

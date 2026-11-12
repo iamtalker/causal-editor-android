@@ -5,13 +5,25 @@
 window.CAUSAL_BASE_ZOOM = 0.7;
 window.CAUSAL_FIT_MAX_ZOOM = 0.7;
 
+// 뒤로 가기(MainActivity가 호출): 열린 대화상자나 메뉴를 먼저 닫습니다.
+// 닫을 것이 없으면 false를 돌려주고, 그때 앱이 종료 처리를 합니다.
+window.__androidBack = function () {
+  const open = [...document.querySelectorAll('dialog[open]')];
+  if (open.length) { open[open.length - 1].close(); return true; }
+  for (const id of ['canvasMenu', 'layoutOptions', 'searchResults']) {
+    const el = document.getElementById(id);
+    if (el && !el.hidden) { el.hidden = true; return true; }
+  }
+  return false;
+};
+
 (function () {
   const DEFAULT_DIR = '/storage/emulated/0/Documents/인과편집기';
   const ROOT = '/storage/emulated/0';
   const DIR_KEY = 'causal-android-data-folder';
   const OWN_FILE = /^(n\d+_.*|_경로)\.md$/;
   const HISTORY_FILE = /^\d{8}T\d{6}Z_[a-z0-9-]+\.json$/;
-  const RESERVED_DIRS = ['노드파일', '변경이력'];
+  const RESERVED_DIRS = ['노드파일', '변경이력', '내부데이터'];
   const nativeOk = () => !!(window.Capacitor && window.Capacitor.nativePromise);
   const originalFetch = window.fetch.bind(window);
 
@@ -25,7 +37,10 @@ window.CAUSAL_FIT_MAX_ZOOM = 0.7;
   }
   const nodeDir = () => `${dataDir()}/노드파일`;
   const historyDir = () => `${dataDir()}/변경이력`;
-  const graphFile = () => `${nodeDir()}/그래프.json`;
+  // 그래프 JSON은 노드파일 폴더 밖의 내부데이터에 둡니다 (원본은 노드 .md 파일).
+  const graphDir = () => `${dataDir()}/내부데이터`;
+  const graphFile = () => `${graphDir()}/그래프.json`;
+  const legacyGraphFile = () => `${nodeDir()}/그래프.json`;   // 예전 위치 (옮긴 뒤 지웁니다)
   const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
   async function readJson(path) {
@@ -59,15 +74,32 @@ window.CAUSAL_FIT_MAX_ZOOM = 0.7;
 
   async function handle(method, path, params, init) {
     if (method === 'GET' && path === '/api/graph') {
-      await native('mkdirs', {path: nodeDir()});
-      return reply(200, {ok: true, data: await readJson(graphFile())});
+      const internal = await readJson(graphFile());
+      if (internal) return reply(200, {ok: true, source: 'internal', data: internal});
+      const legacy = await readJson(legacyGraphFile());
+      if (legacy) return reply(200, {ok: true, source: 'legacy', data: legacy});
+      return reply(200, {ok: true, data: null});
     }
     if (method === 'POST' && path === '/api/graph') {
       const data = readBody(init);
       if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) throw new Error('잘못된 그래프 데이터입니다.');
-      await native('mkdirs', {path: nodeDir()});
+      await native('mkdirs', {path: graphDir()});
       await writeJson(graphFile(), data);
+      await native('remove', {path: legacyGraphFile()});
       return reply(200, {ok: true});
+    }
+    // 노드 파일 전체: 그래프의 원본입니다. 파일 내용을 그대로 돌려줍니다.
+    if (method === 'GET' && path === '/api/nodes') {
+      await native('mkdirs', {path: nodeDir()});
+      const {files} = await native('list', {path: nodeDir()});
+      const out = [];
+      for (const f of files) {
+        if (!OWN_FILE.test(f.name)) continue;
+        const r = await native('readText', {path: f.path});
+        out.push({name: f.name, text: r.text || ''});
+      }
+      out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      return reply(200, {ok: true, files: out});
     }
     if (method === 'GET' && path === '/api/versions') {
       return reply(200, {ok: true, versions: await versionsList()});
@@ -106,15 +138,21 @@ window.CAUSAL_FIT_MAX_ZOOM = 0.7;
       return reply(200, {ok: true, count: written.size});
     }
     if (method === 'POST' && path === '/api/open') {
-      return reply(400, {ok: false, error: '안드로이드에서는 노드 Markdown을 앱에서 열 수 없습니다. 동기화된 폴더에서 직접 여세요.'});
+      const base = String(readBody(init).name || '').split('/').pop();
+      if (!OWN_FILE.test(base)) return reply(400, {ok: false, error: '열 수 없는 파일입니다.'});
+      await native('openFile', {path: `${nodeDir()}/${base}`});
+      return reply(200, {ok: true});
     }
     if (method === 'GET' && path === '/api/folders') {
       const current = params.get('path') || ROOT;
       const {dirs} = await native('list', {path: current});
-      const list = dirs.filter(d => !d.name.startsWith('.'))
+      const list = dirs.filter(d => !d.name.startsWith('.') && d.name !== 'self')
         .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
         .map(d => ({name: d.name, path: d.path}));
-      const parent = current === ROOT ? '' : (current.slice(0, current.lastIndexOf('/')) || ROOT);
+      // 위로: 내장 저장소 → /storage(저장소 목록, SD 카드 볼륨이 여기 보입니다). /storage는 맨 위라서 null(버튼 비활성)
+      const parent = current === '/storage' ? null
+        : current === ROOT ? '/storage'
+        : (current.slice(0, current.lastIndexOf('/')) || '/storage');
       return reply(200, {ok: true, current, parent, dirs: list});
     }
     if (method === 'GET' && path === '/api/data-folder') {

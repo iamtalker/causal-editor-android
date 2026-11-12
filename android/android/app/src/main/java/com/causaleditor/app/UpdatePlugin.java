@@ -1,12 +1,19 @@
 package com.causaleditor.app;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInstaller;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 
-import androidx.core.content.FileProvider;
-
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -18,6 +25,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,10 +33,20 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-// GitHub 비공개 저장소의 최신 릴리즈(APK)를 확인하고 내려받아 설치합니다.
+// 앱 자동 업데이트 (안드로이드 앱 안에서 새 버전을 받아 설치합니다).
+// GitHub 최신 릴리즈를 확인하고, 받은 APK를 설치 세션(PackageInstaller)에 넣어 설치 확인 화면을 띄웁니다.
+// 설치 결과는 UpdateReceiver가 받고, 단계는 installState로 JS가 읽습니다.
 // 다운로드 진행률은 JS가 progress 메서드를 주기적으로 호출해서 읽습니다.
 @CapacitorPlugin(name = "Updater")
 public class UpdatePlugin extends Plugin {
+    static final String CHANNEL = "update";
+    static final int NOTICE_ID = 2;
+    static final String RESULT_ACTION = "com.causaleditor.app.INSTALL_RESULT";
+
+    // 설치 단계: 0 대기 · 2 설치 준비 · 3 설치 확인 화면 · 4 설치 중(앱이 곧 꺼짐) · 5 완료 · 9 실패
+    private static volatile int installStep = 0;
+    private static volatile String installMessage = "";
+
     private static volatile long downloaded = 0;
     private static volatile long totalBytes = 0;
     private static volatile boolean downloading = false;
@@ -84,6 +102,7 @@ public class UpdatePlugin extends Plugin {
 
     @PluginMethod
     public void download(PluginCall call) {
+        final Context ctx = getContext();
         final String url = call.getString("url", "");
         final String token = call.getString("token", "");
         final String fileName = call.getString("fileName", "update.apk").replaceAll("[^A-Za-z0-9._-]", "_");
@@ -101,17 +120,25 @@ public class UpdatePlugin extends Plugin {
                     c = open(new URL(location), null, "application/octet-stream");
                     code = c.getResponseCode();
                 }
-                if (code != 200) { call.reject("다운로드 실패 (HTTP " + code + ")"); return; }
+                if (code != 200) { call.reject("다운로드 실패 (HTTP " + code + ")"); cancelNotice(ctx); return; }
                 totalBytes = c.getContentLengthLong();
-                File dir = new File(getContext().getCacheDir(), "updates");
+                File dir = new File(ctx.getCacheDir(), "updates");
                 if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("폴더를 만들지 못했습니다.");
                 File out = new File(dir, fileName);
+                int lastPct = -1;
                 try (InputStream in = c.getInputStream(); OutputStream os = new FileOutputStream(out)) {
                     byte[] buf = new byte[64 * 1024];
                     int n;
                     while ((n = in.read(buf)) > 0) {
                         os.write(buf, 0, n);
                         downloaded += n;
+                        if (totalBytes > 0) {
+                            int pct = (int) (downloaded * 100 / totalBytes);
+                            if (pct != lastPct) {
+                                lastPct = pct;
+                                notifyNow(ctx, "앱 업데이트", "새 버전 받는 중 " + pct + "%", pct);
+                            }
+                        }
                     }
                 }
                 JSObject ret = new JSObject();
@@ -119,6 +146,7 @@ public class UpdatePlugin extends Plugin {
                 ret.put("size", out.length());
                 call.resolve(ret);
             } catch (Exception e) {
+                cancelNotice(ctx);
                 call.reject("다운로드 실패: " + e.getMessage());
             } finally {
                 downloading = false;
@@ -151,24 +179,140 @@ public class UpdatePlugin extends Plugin {
         call.resolve();
     }
 
+    // 설치 단계를 JS가 주기적으로 읽습니다. 앱이 교체되면 JS는 다시 시작되므로 완료 알림은 ReplacedReceiver가 맡습니다.
+    @PluginMethod
+    public void installState(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("step", installStep);
+        ret.put("message", installMessage);
+        call.resolve(ret);
+    }
+
+    // 받아 둔 APK를 설치 세션에 넣고 설치를 맡깁니다. 실제 확인 화면은 UpdateReceiver가 띄웁니다.
     @PluginMethod
     public void install(PluginCall call) {
+        final Context ctx = getContext();
+        File apk;
         try {
-            File apk = new File(call.getString("path", "")).getCanonicalFile();
-            File updates = new File(getContext().getCacheDir(), "updates").getCanonicalFile();
+            apk = new File(call.getString("path", "")).getCanonicalFile();
+            File updates = new File(ctx.getCacheDir(), "updates").getCanonicalFile();
             if (!apk.getPath().startsWith(updates.getPath() + File.separator) || !apk.isFile()) {
                 call.reject("설치 파일을 찾지 못했습니다.");
                 return;
             }
-            Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, "application/vnd.android.package-archive");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
-            call.resolve();
-        } catch (Exception e) {
-            call.reject("설치 화면을 열지 못했습니다: " + e.getMessage());
+        } catch (IOException e) {
+            call.reject("설치 파일을 확인하지 못했습니다: " + e.getMessage());
+            return;
         }
+        setInstallState(2, "설치를 준비하는 중…");
+        final File file = apk;
+        new Thread(() -> {
+            try {
+                startSession(ctx, file);
+            } catch (Exception e) {
+                setInstallState(9, "설치하지 못했습니다: " + e.getMessage());
+                cancelNotice(ctx);
+            }
+        }).start();
+        call.resolve();
+    }
+
+    private static void startSession(Context ctx, File apk) throws IOException {
+        PackageInstaller pi = ctx.getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        final int id = pi.createSession(params);
+        // 설치가 실제로 시작되면 '설치 중' 단계로 넘깁니다. 앱이 교체되는 동안에도 알림이 남도록 합니다.
+        PackageInstaller.SessionCallback cb = new PackageInstaller.SessionCallback() {
+            private void installing() {
+                if (installStep == 2 || installStep == 3) {
+                    setInstallState(4, "설치하는 중… 앱이 곧 꺼졌다가 새 버전으로 다시 켜집니다(약 10~30초). 꺼져도 정상입니다");
+                    notifyNow(ctx, "앱 업데이트", "설치하는 중… 앱이 곧 다시 켜집니다", -1);
+                }
+            }
+            @Override public void onCreated(int sessionId) {}
+            @Override public void onBadgingChanged(int sessionId) {}
+            @Override public void onActiveChanged(int sessionId, boolean active) { if (sessionId == id && active) installing(); }
+            @Override public void onProgressChanged(int sessionId, float progress) { if (sessionId == id && progress > 0.95f) installing(); }
+            @Override public void onFinished(int sessionId, boolean success) {
+                if (sessionId != id) return;
+                try { pi.unregisterSessionCallback(this); } catch (Exception ignored) { }
+                if (!success && installStep != 5) { setInstallState(9, "설치하지 못했거나 취소했습니다"); cancelNotice(ctx); }
+            }
+        };
+        pi.registerSessionCallback(cb, new Handler(Looper.getMainLooper()));
+        try (PackageInstaller.Session s = pi.openSession(id)) {
+            try (InputStream in = new FileInputStream(apk); OutputStream os = s.openWrite("app.apk", 0, apk.length())) {
+                byte[] buf = new byte[256 * 1024];
+                long total = Math.max(apk.length(), 1L);
+                long done = 0;
+                int last = -1;
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    os.write(buf, 0, n);
+                    done += n;
+                    int pct = (int) (done * 100 / total);
+                    if (pct != last) {
+                        last = pct;
+                        setInstallState(2, "설치를 준비하는 중… " + pct + "%");
+                        notifyNow(ctx, "앱 업데이트", "설치를 준비하는 중… " + pct + "%", pct);
+                    }
+                }
+                s.fsync(os);
+            }
+            Intent intent = new Intent(ctx, UpdateReceiver.class).setAction(RESULT_ACTION).setPackage(ctx.getPackageName());
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+            s.commit(PendingIntent.getBroadcast(ctx, id, intent, flags).getIntentSender());
+        }
+        setInstallState(2, "설치 확인 화면을 기다리는 중…");
+    }
+
+    static void setInstallState(int step, String message) {
+        installStep = step;
+        installMessage = message;
+    }
+
+    /** 작업표시줄 알림(알림 권한이 없으면 조용히 건너뜀) */
+    static void notifyNow(Context ctx, String title, String text, int pct) {
+        try {
+            NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+            Notification.Builder b;
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(new NotificationChannel(CHANNEL, "앱 업데이트", NotificationManager.IMPORTANCE_LOW));
+                b = new Notification.Builder(ctx, CHANNEL);
+            } else {
+                b = new Notification.Builder(ctx);
+            }
+            b.setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(text).setOngoing(true);
+            if (pct >= 0 && pct <= 100) b.setProgress(100, pct, false); else b.setProgress(0, 0, true);
+            nm.notify(NOTICE_ID, b.build());
+        } catch (Exception ignored) { }
+    }
+
+    static void cancelNotice(Context ctx) {
+        try { ctx.getSystemService(NotificationManager.class).cancel(NOTICE_ID); } catch (Exception ignored) { }
+    }
+
+    /** 앱이 새 버전으로 바뀐 직후 알림 (ReplacedReceiver가 호출) */
+    static void notifyDone(Context ctx) {
+        try {
+            NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+            Notification.Builder b;
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(new NotificationChannel(CHANNEL, "앱 업데이트", NotificationManager.IMPORTANCE_LOW));
+                b = new Notification.Builder(ctx, CHANNEL);
+            } else {
+                b = new Notification.Builder(ctx);
+            }
+            String version = "";
+            try { version = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionName; } catch (Exception ignored) { }
+            PendingIntent open = PendingIntent.getActivity(ctx, 3, new Intent(ctx, MainActivity.class),
+                    PendingIntent.FLAG_IMMUTABLE);
+            b.setSmallIcon(R.mipmap.ic_launcher).setContentTitle("앱 업데이트 완료")
+                    .setContentText("새 버전 " + version + "(으)로 바뀌었습니다")
+                    .setAutoCancel(true).setContentIntent(open);
+            nm.notify(NOTICE_ID, b.build());
+        } catch (Exception ignored) { }
     }
 
     private static HttpURLConnection open(URL url, String token, String accept) throws IOException {
