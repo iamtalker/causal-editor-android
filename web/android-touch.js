@@ -229,11 +229,15 @@
   }
   setInterval(updateConnectBtn, 250);
 
-  // 폰 화면(800px 이하)에서는 사이드 패널을 처음에 접어 그래프 공간을 넓힙니다.
-  // 사용자가 직접 연 적이 있으면(저장된 설정이 있으면) 그 선택을 따릅니다.
+  // 폰 화면(800px 이하)에서는 하단 패널을 처음에 최소화해서 그래프 공간을 넓힙니다.
+  // 패널의 "패널 펼치기" 체크로 원래 크기로 돌아갑니다. 사용자가 패널을 직접 숨긴 적이 있으면 그 선택을 따릅니다.
   window.addEventListener('load', () => {
     try {
-      if (window.innerWidth <= 800 && localStorage.getItem(SIDEBAR_KEY) === null) setSidebarVisible(false);
+      if (window.innerWidth <= 800 && localStorage.getItem(SIDEBAR_KEY) === null) {
+        const panel = document.querySelector('aside'), toggle = document.getElementById('panelExpand');
+        if (panel) panel.classList.add('minimized');
+        if (toggle) toggle.checked = false;
+      }
     } catch (e) { /* 저장소 접근이 막혀 있으면 기본 설정을 그대로 씁니다 */ }
   });
 
