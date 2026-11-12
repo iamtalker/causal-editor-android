@@ -19,18 +19,18 @@
   const style = document.createElement('style');
   style.textContent = `
     #stage{touch-action:none}
-    #drawerShade{position:fixed;inset:0;background:#0005;z-index:55;display:none}
+    #drawerShade{position:fixed;inset:0;background:#0005;z-index:55!important;display:none}
     #drawerShade.show{display:block}
     @media (max-width:800px){
       .panel-toggle{display:none!important}
-      header{position:fixed!important;top:0;left:0;bottom:0;height:100%;width:min(290px,86vw)!important;z-index:60;
+      header{position:fixed!important;top:0;left:0;bottom:0;height:100%;width:min(190px,44vw)!important;z-index:60!important;
         flex-direction:column!important;flex-wrap:nowrap;align-items:stretch;gap:10px!important;padding:14px!important;
         overflow-x:hidden!important;overflow-y:auto;border-bottom:0!important;border-right:1px solid #dce1e8;
         box-sizing:border-box;transform:translateX(-105%);transition:transform .22s ease}
       header.drawer-open{transform:none;box-shadow:4px 0 18px #0003}
       header .toolbar-group{flex-wrap:wrap;border-right:0!important;padding-right:0!important}
-      aside{position:fixed!important;top:0;right:0;bottom:0;left:auto;height:100%;width:min(300px,86vw)!important;
-        max-height:none!important;flex:none!important;z-index:60;border-top:0;border-left:1px solid #ddd;
+      aside{position:fixed!important;top:0;right:0;bottom:0;left:auto;height:100%;width:min(190px,44vw)!important;
+        max-height:none!important;flex:none!important;z-index:60!important;border-top:0;border-left:1px solid #ddd;
         box-sizing:border-box;transform:translateX(105%);transition:transform .22s ease}
       aside.drawer-open{transform:none;box-shadow:-4px 0 18px #0003}
       aside[hidden]{display:flex!important}
@@ -130,8 +130,26 @@
   // 노드 편집 칸(하단 패널)을 펼칩니다. 입력칸 커서 위치 지정에도 씁니다.
   function expandPanel() { openDrawer('right'); }
 
+  // 열린 서랍을 밀어서 닫기: 서랍 안에서 시작해 서랍 쪽 가장자리 방향으로 밀면 닫힙니다.
+  let drawerClose = null;
+  const openSide = () => {
+    const {header, aside} = drawerEls();
+    if (header && header.classList.contains('drawer-open')) return 'left';
+    if (aside && aside.classList.contains('drawer-open')) return 'right';
+    return null;
+  };
+
   window.addEventListener('touchstart', (e) => {
     edge = null;
+    drawerClose = null;
+    const side = openSide();
+    if (side && e.touches.length === 1) {
+      const el = drawerEls()[side === 'left' ? 'header' : 'aside'];
+      if (el && el.contains(e.target)) {
+        drawerClose = {side, x0: e.touches[0].clientX, y0: e.touches[0].clientY};
+        return;
+      }
+    }
     // 화면 가장자리에서 시작하면 서랍 열기 동작으로 봅니다. 노드·화면 조작은 하지 않습니다.
     if (e.touches.length === 1 && !isDrawerOpen()) {
       const t = e.touches[0], w = window.innerWidth;
@@ -166,6 +184,17 @@
   }, {passive: true});
 
   window.addEventListener('touchmove', (e) => {
+    if (drawerClose) {
+      const t = e.touches[0];
+      if (!t || e.touches.length !== 1) { drawerClose = null; return; }
+      const dx = t.clientX - drawerClose.x0, dy = t.clientY - drawerClose.y0;
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 14) { drawerClose = null; return; }
+      if ((drawerClose.side === 'left' && dx < -SWIPE_PX) || (drawerClose.side === 'right' && dx > SWIPE_PX)) {
+        closeDrawers();
+        drawerClose = null;
+      }
+      return;
+    }
     if (edge) {
       const t = e.touches[0];
       if (!t || e.touches.length !== 1) { edge = null; return; }
@@ -200,6 +229,7 @@
 
   window.addEventListener('touchend', (e) => {
     edge = null;
+    drawerClose = null;
     if (pinch) {
       if (e.touches.length < 2) endPinch();
       if (e.touches.length === 0) busy = false;
@@ -313,6 +343,7 @@
   window.addEventListener('touchcancel', (e) => {
     gesture = null;
     edge = null;
+    drawerClose = null;
     if (pinch && e.touches.length < 2) endPinch();
     if (e.touches.length === 0) busy = false;
   }, {passive: true});
