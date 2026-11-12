@@ -86,7 +86,20 @@
   function scheduleRender() {
     if (renderQueued) return;
     renderQueued = true;
-    requestAnimationFrame(() => { renderQueued = false; render(); });
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      const keep = gesture && gesture.kind === 'node' && gesture.moved ? gesture : null;
+      render();
+      if (keep) keepDraggedNode(keep);
+    });
+  }
+
+  // 다시 그리면 손가락이 누른 노드 요소가 문서에서 사라져서 터치 이벤트가 끊깁니다.
+  // 누른 요소를 그대로 두고, 새로 그린 같은 노드 자리에 넣어서 끌기가 끝까지 이어지게 합니다.
+  function keepDraggedNode(g) {
+    const fresh = svg.querySelector('[data-node="' + g.node.id + '"]');
+    g.el.setAttribute('transform', 'translate(' + g.node.x + ',' + g.node.y + ')');
+    if (fresh && fresh !== g.el) fresh.replaceWith(g.el);
   }
 
   // 한 손가락으로 노드를 끌던 중이었다면 지금까지의 위치를 저장하고 다시 그립니다.
