@@ -20,6 +20,7 @@
   let pinch = null;              // 두 손가락 확대·축소 상태
   let busy = false;              // 두 손가락 동작이 끝난 뒤, 손가락을 모두 뗄 때까지 새 동작을 막습니다.
   let lastTap = null;            // 직전 탭 (두 번 탭 확인용)
+  let lastNodeTap = null;        // 직전 노드 탭 (노드 두 번 탭 확인용)
 
   const stageEl = () => document.getElementById('stage');
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -162,9 +163,17 @@
     fire('mousedown', t.clientX, t.clientY, g.target);
     fire('mouseup', t.clientX, t.clientY, window);
     // 노드 상자의 제목 자리를 탭하면 제목, 메모 자리를 탭하면 메모 입력칸으로 바로 갑니다.
+    // 노드를 한 번 탭하면 선택만 합니다. 같은 노드를 빠르게 두 번 탭하면 패널을 펼치고 제목·메모 칸에 커서를 둡니다.
     if (g.kind === 'node' && !wasPending) {
-      const field = nodeFieldAt(g.node, t);
-      if (field) focusNodeField(field);
+      const now = Date.now();
+      const isDouble = !!lastNodeTap && lastNodeTap.id === g.node.id && now - lastNodeTap.at < DOUBLE_TAP_MS &&
+        Math.hypot(t.clientX - lastNodeTap.x, t.clientY - lastNodeTap.y) < DOUBLE_TAP_PX;
+      lastNodeTap = isDouble ? null : {id: g.node.id, at: now, x: t.clientX, y: t.clientY};
+      if (isDouble) {
+        const field = nodeFieldAt(g.node, t);
+        if (field) focusNodeField(field);
+        else expandPanel();
+      }
     }
   }, {passive: false});
 
@@ -184,10 +193,18 @@
     return null;                         // 상태 표시 등 나머지 자리
   }
 
-  // 사이드 패널(노드 편집 칸)을 열고 해당 입력칸에 커서를 둡니다.
+  // 하단 패널을 원래 크기로 펼칩니다 (숨김 상태였다면 보이게 합니다).
+  function expandPanel() {
+    setSidebarVisible(true);
+    const panel = document.querySelector('aside'), toggle = document.getElementById('panelExpand');
+    if (panel) panel.classList.remove('minimized');
+    if (toggle) toggle.checked = true;
+  }
+
+  // 패널을 펼치고 해당 입력칸에 커서를 둡니다.
   function focusNodeField(field) {
     setTimeout(() => {
-      setSidebarVisible(true);
+      expandPanel();
       const el = document.getElementById(field === 'title' ? 'f_title' : 'f_memo');
       if (!el) return;
       el.focus();
