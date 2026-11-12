@@ -36,7 +36,14 @@ npm run build:apk
 
 디버그 APK는 Gradle 기본 위치인 `android/app/build/outputs/apk/debug/`에 생깁니다.
 
-> **주의**: `copy-web.js`는 PC 편집기 파일을 `../프로그램/`(이 저장소 폴더의 바로 위 폴더)에서 읽습니다. 현재 폴더 배치에서는 이 경로에 `프로그램/`이 없으므로, 실행 전에 경로를 맞춰야 합니다.
+> **PC 편집기 소스 위치**: `copy-web.js`는 PC 편집기의 `프로그램/index.html`과 `md-graph.js`를 읽습니다. 찾는 순서는 다음과 같습니다.
+> 1. `PC_PROGRAM_DIR` 환경 변수가 가리키는 폴더
+> 2. 이 저장소 바로 위의 `인과편집기/프로그램/` (PC 저장소 기준)
+> 3. 이 저장소 안의 `프로그램/`
+>
+> 다른 위치에 PC 저장소를 두었다면 `PC_PROGRAM_DIR`을 설정하세요.
+>
+> **JDK**: Capacitor 7은 JDK 21이 필요합니다. `JAVA_HOME`이 JDK 17을 가리키면 `invalid source release: 21` 오류가 납니다. 빌드할 때 JDK 21 경로를 `JAVA_HOME`으로 지정하세요.
 
 ## 최소 사양
 
