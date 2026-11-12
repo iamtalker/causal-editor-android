@@ -7,13 +7,34 @@
 //   손을 떼면 위치를 저장합니다. 터치 대상은 손가락을 댄 요소로 고정되므로 다시 그려도 끌기가 끊기지 않습니다.
 // 추가: 두 손가락으로 확대·축소(핀치), 빈 곳 두 번 탭으로 노드 추가, 한 손가락 화면 밀기.
 //  - 탭(움직임 없이 뗌): 원래 마우스 클릭 흐름(선택, 화살표 연결 등)을 그대로 실행합니다.
+// 폰 화면 서랍: 위쪽 툴바는 왼쪽 가장자리에서 오른쪽으로 밀면 나오고, 하단 패널은 오른쪽 가장자리에서 왼쪽으로 밀면 나옵니다.
+//   바깥(어두운 부분)을 누르면 닫힙니다. PC 화면에는 영향이 없습니다.
 (function () {
   const MOVE_SLOP = 10;          // 이 거리(px)보다 적게 움직이면 탭으로 봅니다.
   const DOUBLE_TAP_MS = 320, DOUBLE_TAP_PX = 28;
   const MIN_ZOOM = 0.2, MAX_ZOOM = 3;   // index.html의 휠 확대 범위와 같습니다.
+  const EDGE_PX = 28;            // 화면 가장자리에서 이 안쪽으로 시작해야 서랍이 열립니다.
+  const SWIPE_PX = 56;           // 이만큼 가로로 밀어야 서랍이 열립니다.
 
   const style = document.createElement('style');
-  style.textContent = '#stage{touch-action:none}';
+  style.textContent = `
+    #stage{touch-action:none}
+    #drawerShade{position:fixed;inset:0;background:#0005;z-index:55;display:none}
+    #drawerShade.show{display:block}
+    @media (max-width:800px){
+      .panel-toggle{display:none!important}
+      header{position:fixed!important;top:0;left:0;bottom:0;height:100%;width:min(290px,86vw)!important;z-index:60;
+        flex-direction:column!important;flex-wrap:nowrap;align-items:stretch;gap:10px!important;padding:14px!important;
+        overflow-x:hidden!important;overflow-y:auto;border-bottom:0!important;border-right:1px solid #dce1e8;
+        box-sizing:border-box;transform:translateX(-105%);transition:transform .22s ease}
+      header.drawer-open{transform:none;box-shadow:4px 0 18px #0003}
+      header .toolbar-group{flex-wrap:wrap;border-right:0!important;padding-right:0!important}
+      aside{position:fixed!important;top:0;right:0;bottom:0;left:auto;height:100%;width:min(300px,86vw)!important;
+        max-height:none!important;flex:none!important;z-index:60;border-top:0;border-left:1px solid #ddd;
+        box-sizing:border-box;transform:translateX(105%);transition:transform .22s ease}
+      aside.drawer-open{transform:none;box-shadow:-4px 0 18px #0003}
+      aside[hidden]{display:flex!important}
+    }`;
   (document.head || document.documentElement).appendChild(style);
 
   let gesture = null;            // 한 손가락 동작: node / pan / tap
@@ -21,6 +42,7 @@
   let busy = false;              // 두 손가락 동작이 끝난 뒤, 손가락을 모두 뗄 때까지 새 동작을 막습니다.
   let lastTap = null;            // 직전 탭 (두 번 탭 확인용)
   let lastNodeTap = null;        // 직전 노드 탭 (노드 두 번 탭 확인용)
+  let edge = null;               // 화면 가장자리에서 시작한 손가락 (서랍 열기용)
 
   const stageEl = () => document.getElementById('stage');
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -74,7 +96,48 @@
     if (g && g.kind === 'node' && g.moved) { save(); render(); }
   }
 
+  // ---------- 서랍 (폰 화면) ----------
+  // 위쪽 툴바(header)는 왼쪽 서랍, 하단 패널(aside)은 오른쪽 서랍으로 나옵니다.
+  let shade = null;
+  function ensureShade() {
+    if (!shade) {
+      shade = document.createElement('div');
+      shade.id = 'drawerShade';
+      shade.addEventListener('click', closeDrawers);
+      (document.body || document.documentElement).appendChild(shade);
+    }
+    return shade;
+  }
+  const drawerEls = () => ({header: document.querySelector('header'), aside: document.querySelector('aside')});
+  function isDrawerOpen() {
+    const {header, aside} = drawerEls();
+    return !!((header && header.classList.contains('drawer-open')) || (aside && aside.classList.contains('drawer-open')));
+  }
+  function closeDrawers() {
+    const {header, aside} = drawerEls();
+    if (header) header.classList.remove('drawer-open');
+    if (aside) aside.classList.remove('drawer-open');
+    if (shade) shade.classList.remove('show');
+  }
+  function openDrawer(side) {
+    const {header, aside} = drawerEls();
+    closeDrawers();
+    const el = side === 'left' ? header : aside;
+    if (!el) return;
+    el.classList.add('drawer-open');
+    ensureShade().classList.add('show');
+  }
+  // 노드 편집 칸(하단 패널)을 펼칩니다. 입력칸 커서 위치 지정에도 씁니다.
+  function expandPanel() { openDrawer('right'); }
+
   window.addEventListener('touchstart', (e) => {
+    edge = null;
+    // 화면 가장자리에서 시작하면 서랍 열기 동작으로 봅니다. 노드·화면 조작은 하지 않습니다.
+    if (e.touches.length === 1 && !isDrawerOpen()) {
+      const t = e.touches[0], w = window.innerWidth;
+      if (t.clientX <= EDGE_PX) { edge = {side: 'left', x0: t.clientX, y0: t.clientY}; gesture = null; return; }
+      if (t.clientX >= w - EDGE_PX) { edge = {side: 'right', x0: t.clientX, y0: t.clientY}; gesture = null; return; }
+    }
     if (e.touches.length >= 2) {
       if (!pinch) {
         finishGesture();
@@ -103,6 +166,15 @@
   }, {passive: true});
 
   window.addEventListener('touchmove', (e) => {
+    if (edge) {
+      const t = e.touches[0];
+      if (!t || e.touches.length !== 1) { edge = null; return; }
+      const dx = t.clientX - edge.x0, dy = t.clientY - edge.y0;
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 14) { edge = null; return; }   // 세로로 움직이면 서랍 동작이 아닙니다
+      if (edge.side === 'left' && dx > SWIPE_PX) { openDrawer('left'); edge = null; }
+      else if (edge.side === 'right' && dx < -SWIPE_PX) { openDrawer('right'); edge = null; }
+      return;
+    }
     if (pinch) {
       if (e.touches.length >= 2) { e.preventDefault(); movePinch(e.touches); }
       return;
@@ -127,6 +199,7 @@
   }, {passive: false});
 
   window.addEventListener('touchend', (e) => {
+    edge = null;
     if (pinch) {
       if (e.touches.length < 2) endPinch();
       if (e.touches.length === 0) busy = false;
@@ -162,7 +235,6 @@
     const wasPending = !!pendingConnectionSource;   // 연결 모드에서 누른 탭이면 입력칸으로 가지 않습니다.
     fire('mousedown', t.clientX, t.clientY, g.target);
     fire('mouseup', t.clientX, t.clientY, window);
-    // 노드 상자의 제목 자리를 탭하면 제목, 메모 자리를 탭하면 메모 입력칸으로 바로 갑니다.
     // 노드를 한 번 탭하면 선택만 합니다. 같은 노드를 빠르게 두 번 탭하면 패널을 펼치고 제목·메모 칸에 커서를 둡니다.
     if (g.kind === 'node' && !wasPending) {
       const now = Date.now();
@@ -191,14 +263,6 @@
     if (y < 46) return 'title';          // 제목 줄 (22, 39 근처)
     if (y < 70) return 'memo';           // 메모 줄 (58 근처)
     return null;                         // 상태 표시 등 나머지 자리
-  }
-
-  // 하단 패널을 원래 크기로 펼칩니다 (숨김 상태였다면 보이게 합니다).
-  function expandPanel() {
-    setSidebarVisible(true);
-    const panel = document.querySelector('aside'), toggle = document.getElementById('panelExpand');
-    if (panel) panel.classList.remove('minimized');
-    if (toggle) toggle.checked = true;
   }
 
   // 패널을 펼치고 해당 입력칸에 커서를 둡니다.
@@ -246,20 +310,9 @@
   }
   setInterval(updateConnectBtn, 250);
 
-  // 폰 화면(800px 이하)에서는 하단 패널을 처음에 최소화해서 그래프 공간을 넓힙니다.
-  // 패널의 "패널 펼치기" 체크로 원래 크기로 돌아갑니다. 사용자가 패널을 직접 숨긴 적이 있으면 그 선택을 따릅니다.
-  window.addEventListener('load', () => {
-    try {
-      if (window.innerWidth <= 800 && localStorage.getItem(SIDEBAR_KEY) === null) {
-        const panel = document.querySelector('aside'), toggle = document.getElementById('panelExpand');
-        if (panel) panel.classList.add('minimized');
-        if (toggle) toggle.checked = false;
-      }
-    } catch (e) { /* 저장소 접근이 막혀 있으면 기본 설정을 그대로 씁니다 */ }
-  });
-
   window.addEventListener('touchcancel', (e) => {
     gesture = null;
+    edge = null;
     if (pinch && e.touches.length < 2) endPinch();
     if (e.touches.length === 0) busy = false;
   }, {passive: true});
