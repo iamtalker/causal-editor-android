@@ -3,8 +3,8 @@
 // 문제 1 (노드가 안 움직임): 손가락이 조금 움직이기 전에는 브라우저가 화면을 스크롤하려고 손가락 동작을 가져갑니다.
 //   그러면 앱에는 touchcancel만 전달되고 노드 끌기가 끊깁니다.
 //   해결: #stage에 touch-action:none을 주어 브라우저가 스크롤하지 않게 하고, 손가락이 닿은 순간부터 막습니다.
-// 문제 2 (편집기는 노드를 끌 때마다 전체를 다시 그림): 끄는 동안에는 노드의 위치(transform)만 바꾸고,
-//   손을 떼면 저장하고 다시 그립니다. 다시 그리면 손가락이 잡고 있던 요소가 사라지기 때문입니다.
+// 끄는 동안에는 노드 위치를 바꾸고 프레임마다 다시 그려서 화살표가 따라오게 합니다 (PC의 mousemove와 같음).
+//   손을 떼면 위치를 저장합니다. 터치 대상은 손가락을 댄 요소로 고정되므로 다시 그려도 끌기가 끊기지 않습니다.
 // 추가: 두 손가락으로 확대·축소(핀치), 빈 곳 두 번 탭으로 노드 추가, 한 손가락 화면 밀기.
 //  - 탭(움직임 없이 뗌): 원래 마우스 클릭 흐름(선택, 화살표 연결 등)을 그대로 실행합니다.
 (function () {
@@ -58,6 +58,14 @@
     render();
   }
 
+  // 다시 그리기 요청을 한 프레임에 한 번으로 모읍니다.
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; render(); });
+  }
+
   // 한 손가락으로 노드를 끌던 중이었다면 지금까지의 위치를 저장하고 다시 그립니다.
   function finishGesture() {
     const g = gesture;
@@ -109,7 +117,8 @@
       const p = svgPoint({clientX: t.clientX, clientY: t.clientY});
       gesture.node.x = Math.max(0, p.x - gesture.dx);
       gesture.node.y = Math.max(0, p.y - gesture.dy);
-      gesture.el.setAttribute('transform', `translate(${gesture.node.x},${gesture.node.y})`);
+      // PC 편집기처럼 끄는 동안 화살표까지 다시 그립니다. 프레임마다 한 번만 그려서 부드럽게 합니다.
+      scheduleRender();
     } else if (gesture.kind === 'pan') {
       gesture.stage.scrollLeft = gesture.left - (t.clientX - gesture.x0);
       gesture.stage.scrollTop = gesture.top - (t.clientY - gesture.y0);
