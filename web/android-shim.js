@@ -34,6 +34,10 @@ window.__androidBack = function () {
     return DEFAULT_DIR;
   }
   const nodeDir = () => `${dataDir()}/노드파일`;
+  // 노드 파일 경로 -> 파일에 들어 있다고 아는 내용. 저장할 때 바뀐 파일만 쓰려고 씁니다. 파일을 읽을 때마다 새로 채웁니다.
+  const nodeFileCache = new Map();
+  const graphTextCache = new Map();   // 그래프 JSON 경로 -> 마지막으로 쓴 내용
+  let legacyGraphRemoved = false;
   const historyDir = () => `${dataDir()}/변경이력`;
   // 그래프 JSON은 노드파일 폴더 밖의 내부데이터에 둡니다 (원본은 노드 .md 파일).
   const graphDir = () => `${dataDir()}/내부데이터`;
@@ -68,9 +72,12 @@ window.__androidBack = function () {
     if (method === 'POST' && path === '/api/graph') {
       const data = readBody(init);
       if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) throw new Error('잘못된 그래프 데이터입니다.');
+      const text = JSON.stringify(data, null, 2), file = graphFile();
+      if (graphTextCache.get(file) === text) return reply(200, {ok: true});   // 파일에 이미 같은 내용이 있으면 쓰지 않습니다
       await native('mkdirs', {path: graphDir()});
-      await writeJson(graphFile(), data);
-      await native('remove', {path: legacyGraphFile()});
+      await native('writeText', {path: file, text});
+      graphTextCache.set(file, text);
+      if (!legacyGraphRemoved) { await native('remove', {path: legacyGraphFile()}); legacyGraphRemoved = true; }   // 예전 위치의 파일은 한 번만 정리합니다
       return reply(200, {ok: true});
     }
     // 노드 파일 전체: 그래프의 원본입니다. 파일 내용을 그대로 돌려줍니다.
@@ -78,10 +85,12 @@ window.__androidBack = function () {
       await native('mkdirs', {path: nodeDir()});
       const {files} = await native('list', {path: nodeDir()});
       const out = [];
+      nodeFileCache.clear();   // 지금 파일에 있는 내용으로 다시 기억합니다
       for (const f of files) {
         if (!OWN_FILE.test(f.name)) continue;
         const r = await native('readText', {path: f.path});
         out.push({name: f.name, text: r.text || ''});
+        nodeFileCache.set(f.path, r.text || '');
       }
       out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       return reply(200, {ok: true, files: out});
@@ -110,17 +119,22 @@ window.__androidBack = function () {
       const {files} = readBody(init);
       await native('mkdirs', {path: nodeDir()});
       const written = new Set();
+      let changed = 0;
       for (const f of files) {
         const name = String(f.name).split('/').pop();
         if (!OWN_FILE.test(name)) continue;
-        await native('writeText', {path: `${nodeDir()}/${name}`, text: String(f.text)});
+        const full = `${nodeDir()}/${name}`, text = String(f.text);
         written.add(name);
+        if (nodeFileCache.get(full) === text) continue;   // 파일에 이미 같은 내용이 있으면 쓰지 않습니다 (기기 파일 쓰기는 느립니다)
+        await native('writeText', {path: full, text});
+        nodeFileCache.set(full, text);
+        changed++;
       }
       const listing = await native('list', {path: nodeDir()});
       for (const f of listing.files) {
-        if (OWN_FILE.test(f.name) && !written.has(f.name)) await native('remove', {path: f.path});
+        if (OWN_FILE.test(f.name) && !written.has(f.name)) { await native('remove', {path: f.path}); nodeFileCache.delete(f.path); }
       }
-      return reply(200, {ok: true, count: written.size});
+      return reply(200, {ok: true, count: written.size, changed});
     }
     // 데이터 폴더: 현재 폴더 보기 / 바꾸기(바로 적용) / 기기 파일 탐색기로 고르기 / 폴더 안 노드 파일 개수
     if (method === 'GET' && path === '/api/data-folder') {
@@ -130,9 +144,11 @@ window.__androidBack = function () {
       const requested = String(readBody(init).path || '').trim();
       if (!requested) {
         try { localStorage.removeItem(DIR_KEY); } catch (e) {}
+        nodeFileCache.clear();
       } else {
         await native('list', {path: requested});   // 폴더가 없거나 접근할 수 없으면 여기서 오류
         try { localStorage.setItem(DIR_KEY, requested); } catch (e) {}
+        nodeFileCache.clear();
       }
       return reply(200, {ok: true, active: dataDir(), custom: dataDir() !== DEFAULT_DIR});
     }
