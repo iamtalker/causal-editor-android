@@ -1,14 +1,17 @@
 # 인과 편집기 안드로이드 앱
 
-인과 편집기의 안드로이드 앱 저장소입니다. PC 편집기(설치버전)와 같은 화면(`설치버전/프로그램/`의 `index.html`, `app.js`, `storage.js`, `md-graph.js`)을 Capacitor로 감싸 APK로 빌드합니다. 흐름 모드, 연결 모드, 5가지 정렬, 버전 기록 자동 저장 같은 PC 기능은 이 화면 코드에 들어 있어 따로 만들지 않고 그대로 따라옵니다. PC 편집기 소스는 [causal-editor](https://github.com/iamtalker/causal-editor)에서 관리하며, 이 저장소에는 안드로이드 전용 코드만 둡니다.
+인과 편집기의 안드로이드 앱 저장소입니다. 편집기 화면(`src/`의 `index.html`, `app.js`, `storage.js`, `md-graph.js`)을 Capacitor로 감싸 APK로 빌드합니다. 흐름 모드, 연결 모드, 5가지 정렬, 버전 기록 자동 저장 같은 PC 편집기의 기능이 이 화면 코드에 들어 있습니다.
+
+`src/`는 PC 편집기([causal-editor](https://github.com/iamtalker/causal-editor)의 크롬 확장)와 같은 편집기에서 갈라져 나온 **이 저장소 자신의 복사본**입니다. 예전에는 PC 저장소의 설치버전 폴더에서 가져왔지만 설치버전을 없애면서 이 저장소 안으로 옮겼습니다. 그래서 PC 편집기에서 기능을 고치면 같은 수정을 `src/`에도 직접 반영해야 합니다(자동으로 따라오지 않습니다).
 
 ## 구성
 
 | 경로 | 내용 |
 | --- | --- |
-| `web/` | 안드로이드 전용 자바스크립트 (`android-shim.js`: PC 설치버전 서버의 `/api/*` 요청을 기기 파일 작업으로 바꿔 주는 어댑터, `android-touch.js`, `android-update.js`) |
+| `src/` | 편집기 화면 파일 (`index.html`, `app.js`, `storage.js`, `md-graph.js`). `storage.js`는 서버에 `/api/*` 요청을 보내는 방식입니다 |
+| `web/` | 안드로이드 전용 자바스크립트 (`android-shim.js`: `storage.js`의 `/api/*` 요청을 기기 파일 작업으로 바꿔 주는 어댑터, `android-touch.js`, `android-update.js`) |
 | `native/` | 안드로이드 네이티브 플러그인 원본 (`DataFilesPlugin.java`, `UpdatePlugin.java`, `UpdateReceiver.java`, `ReplacedReceiver.java`) |
-| `scripts/copy-web.js` | PC 편집기 파일을 `www/`로 복사하고 안드로이드 파일을 끼워 넣으며, `native/`의 자바 파일을 Gradle 프로젝트로 복사 |
+| `scripts/copy-web.js` | `src/`의 화면 파일을 `www/`로 복사하고 안드로이드 파일을 끼워 넣으며, `native/`의 자바 파일을 Gradle 프로젝트로 복사 |
 | `android/` | Gradle 안드로이드 프로젝트 (Capacitor가 만든 프로젝트) |
 | `capacitor.config.json` | 앱 ID `com.causaleditor.app`, 앱 이름 "인과 편집기", 웹 폴더 `www` |
 | `www/` | `copy-web.js`가 만드는 웹 파일 모음 (Git에 올리지 않음) |
@@ -19,7 +22,6 @@
 
 - Node.js
 - JDK와 Android SDK (`android/local.properties`에 `sdk.dir` 설정, Git에 올리지 않음)
-- PC 편집기 소스: `설치버전/프로그램/`의 `index.html`, `app.js`, `storage.js`, `md-graph.js`
 
 ## 빌드
 
@@ -36,12 +38,7 @@ npm run build:apk
 
 디버그 APK는 Gradle 기본 위치인 `android/app/build/outputs/apk/debug/`에 생깁니다.
 
-> **PC 편집기 소스 위치**: `copy-web.js`는 PC 편집기의 `설치버전/프로그램/`에서 `index.html`, `app.js`, `storage.js`, `md-graph.js`를 읽습니다. 찾는 순서는 다음과 같습니다.
-> 1. `PC_PROGRAM_DIR` 환경 변수가 가리키는 폴더
-> 2. 이 저장소 바로 위의 `인과편집기/설치버전/프로그램/` (PC 저장소 기준)
-> 3. 이 저장소 안의 `프로그램/`
->
-> 다른 위치에 PC 저장소를 두었다면 `PC_PROGRAM_DIR`을 설정하세요. `index.html`의 보안 정책(CSP) 줄은 앱 안에서 필요 없어 복사할 때 뺍니다.
+> **화면 파일 위치**: `copy-web.js`는 이 저장소의 `src/`에서 `index.html`, `app.js`, `storage.js`, `md-graph.js`를 읽습니다. 다른 곳의 파일로 빌드해 보려면 `SRC_DIR` 환경 변수로 폴더를 지정하세요. `index.html`의 보안 정책(CSP) 줄은 앱 안에서 필요 없어 복사할 때 뺍니다.
 >
 > **JDK**: Capacitor 7은 JDK 21이 필요합니다. `JAVA_HOME`이 JDK 17을 가리키면 `invalid source release: 21` 오류가 납니다. 빌드할 때 JDK 21 경로를 `JAVA_HOME`으로 지정하세요.
 
@@ -56,7 +53,7 @@ npm run build:apk
 ## 안드로이드에서 달라지는 점
 
 - **데이터 폴더**: 설정의 "폴더 바꾸기"가 기기의 기본 파일 탐색기를 엽니다. SD 카드 같은 외부 저장소도 고를 수 있고, 바꾸면 바로 적용됩니다. "기본 폴더로"로 `Documents/인과편집기`로 돌아갑니다. 고른 폴더에 노드 파일이 이미 있으면 PC와 같이 "폴더 내용을 불러올지, 지금 그래프로 덮어쓸지" 묻습니다.
-- **파일 저장**: PC 설치버전의 `storage.js`가 서버에 보내던 요청(`/api/nodes`, `/api/graph`, `/api/versions`, `/api/data-folder`, `/api/pick-folder`, `/api/folder-info`)을 `android-shim.js`가 받아 `DataFilesPlugin`으로 기기 저장소의 파일을 읽고 씁니다. 기기 파일 쓰기는 느려서, 파일에 이미 같은 내용이 있다고 아는 노드 파일과 그래프 JSON은 다시 쓰지 않고 바뀐 것만 씁니다. 노드 파일(`노드파일/`)이 그래프의 원본입니다.
+- **파일 저장**: `src/storage.js`가 서버에 보내던 요청(`/api/nodes`, `/api/graph`, `/api/versions`, `/api/data-folder`, `/api/pick-folder`, `/api/folder-info`)을 `android-shim.js`가 받아 `DataFilesPlugin`으로 기기 저장소의 파일을 읽고 씁니다. 기기 파일 쓰기는 느려서, 파일에 이미 같은 내용이 있다고 아는 노드 파일과 그래프 JSON은 다시 쓰지 않고 바뀐 것만 씁니다. 노드 파일(`노드파일/`)이 그래프의 원본입니다.
 - **터치**: 노드를 손가락으로 끌어 옮기고, 빈 곳을 한 손가락으로 밀고, 두 손가락으로 확대·축소합니다. 빈 곳을 두 번 탭하면 노드가 추가됩니다. 노드를 탭하면 그 자리에서 제목·메모·진행 상태 편집창이 바로 열립니다(누른 자리에 따라 제목, 메모, 진행 상태 칸으로 갑니다). PC에서 노드를 누르면 오른쪽 패널로 바로 고치는 것과 같게 한 것이고, 빈 곳을 탭하면 저장되고 닫힙니다. PC의 사이드바에 해당하는 패널에서도 같은 노드를 고칠 수 있습니다(화면 오른쪽 가장자리에서 왼쪽으로 밀면 서랍으로 열립니다. 이때 열려 있던 편집창은 먼저 저장하고 닫습니다). 흐름·연결 모드에서 중심 노드를 처음 고르는 탭과 화살표 연결 중의 탭은 편집창을 열지 않습니다.
 - **화살표 연결**: 노드를 선택하면 오른쪽 아래에 "화살표 연결" 버튼이 나타납니다. 버튼을 누른 뒤 결과 노드를 탭하면 연결됩니다. PC의 Shift+클릭에 해당합니다. 구현은 `web/android-touch.js`에 있고, 연결 상태는 PC와 같은 `pendingConnectionSource`를 씁니다.
 - **툴바 서랍**: 화면 왼쪽 가장자리에서 오른쪽으로 밀면 툴바가 서랍으로 열립니다. 편집, 보기, 화면, 찾기, 파일, 앱 묶음으로 나누고 항목은 손가락으로 누르기 좋은 높이(44px)에 같은 왼쪽 여백으로 맞췄습니다. 모양은 `web/android-touch.js`의 스타일에 있습니다.
