@@ -71,7 +71,6 @@
   let pinch = null;              // 두 손가락 확대·축소 상태
   let busy = false;              // 두 손가락 동작이 끝난 뒤, 손가락을 모두 뗄 때까지 새 동작을 막습니다.
   let lastTap = null;            // 직전 탭 (두 번 탭 확인용)
-  let lastNodeTap = null;        // 직전 노드 탭 (노드 두 번 탭 확인용)
   let edge = null;               // 화면 가장자리에서 시작한 손가락 (서랍 열기용)
 
   const stageEl = () => document.getElementById('stage');
@@ -164,6 +163,8 @@
   }
   function openDrawer(side) {
     const {header, aside} = drawerEls();
+    // 자리 편집창이 열려 있으면 먼저 저장하고 닫습니다. 열어 둔 채 패널에서 고치면 나중에 편집창이 예전 값으로 덮어쓸 수 있습니다.
+    if (typeof closeInlineEditor === 'function') closeInlineEditor(true);
     closeDrawers();
     const el = side === 'left' ? header : aside;
     if (!el) return;
@@ -308,22 +309,27 @@
       lastTap = null;
     }
     // 탭: 원래 마우스 흐름을 실행합니다. 이 시점에는 아직 그래프를 다시 그리지 않았으므로 대상이 남아 있습니다.
-    const wasPending = !!pendingConnectionSource;   // 연결 모드에서 누른 탭이면 입력칸으로 가지 않습니다.
+    const wasPending = !!pendingConnectionSource;   // 연결 모드에서 누른 탭이면 편집으로 가지 않습니다.
+    // 흐름 모드·연결 모드에서 중심 노드를 처음 고르는 탭은 고르기만 합니다(편집창이 뜨지 않게).
+    const picking = (typeof connMode !== 'undefined' && connMode && !connNodeId) || (typeof focusMode !== 'undefined' && focusMode && !focusNodeId);
     fire('mousedown', t.clientX, t.clientY, g.target);
     fire('mouseup', t.clientX, t.clientY, window);
-    // 노드를 한 번 탭하면 선택만 합니다. 같은 노드를 빠르게 두 번 탭하면 패널을 펼치고 제목·메모 칸에 커서를 둡니다.
-    if (g.kind === 'node' && !wasPending) {
-      const now = Date.now();
-      const isDouble = !!lastNodeTap && lastNodeTap.id === g.node.id && now - lastNodeTap.at < DOUBLE_TAP_MS &&
-        Math.hypot(t.clientX - lastNodeTap.x, t.clientY - lastNodeTap.y) < DOUBLE_TAP_PX;
-      lastNodeTap = isDouble ? null : {id: g.node.id, at: now, x: t.clientX, y: t.clientY};
-      if (isDouble) {
-        const field = nodeFieldAt(g.node, t);
-        if (field) focusNodeField(field);
-        else expandPanel();
-      }
-    }
+    // 노드를 탭하면 선택하고, 그 자리에서 바로 편집창을 엽니다. PC에서 노드를 누르면 오른쪽 패널로 바로 고치는 것과 같게 만든 동작입니다.
+    if (g.kind === 'node' && !wasPending && !picking) editNodeAt(g.node, t);
   }, {passive: false});
+
+  // 탭한 자리에서 노드를 고칩니다. PC의 "노드 더블클릭"과 같은 자리 편집창(제목·메모·진행 상태)을 엽니다.
+  // PC 코드에 자리 편집창이 없는 예전 버전이면 사이드 패널의 입력칸으로 갑니다.
+  function editNodeAt(n, t) {
+    if (typeof openInlineEditor === 'function' && typeof inlineEditorField === 'function') {
+      const p = svgPoint({clientX: t.clientX, clientY: t.clientY});
+      const field = inlineEditorField(p.x - n.x, p.y - n.y);   // 누른 자리에 따라 제목·메모·진행 상태 칸
+      setTimeout(() => openInlineEditor(n.id, field), 0);       // 터치의 기본 동작이 끝난 뒤에 열어야 키보드가 뜹니다
+      return;
+    }
+    const field = nodeFieldAt(n, t);
+    if (field) focusNodeField(field); else expandPanel();
+  }
 
   // 노드 안의 위치(상자 기준)로 제목(title)·메모(memo) 자리를 나눕니다. index.html의 render()와 같은 배치입니다.
   function nodeFieldAt(n, t) {
