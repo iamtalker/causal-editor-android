@@ -23,12 +23,42 @@
     #drawerShade.show{display:block}
     @media (max-width:800px){
       .panel-toggle{display:none!important}
-      header{position:fixed!important;top:0;left:0;bottom:0;height:100%;width:min(190px,44vw)!important;z-index:60!important;
-        flex-direction:column!important;flex-wrap:nowrap;align-items:stretch;gap:10px!important;padding:14px!important;
-        overflow-x:hidden!important;overflow-y:auto;border-bottom:0!important;border-right:1px solid #dce1e8;
+      /* 왼쪽 서랍(툴바): 묶음마다 작은 제목과 구분선을 두고, 항목은 높이와 왼쪽 여백을 같게 맞춥니다. */
+      header{position:fixed!important;top:0;left:0;bottom:0;height:100%;width:min(272px,80vw)!important;z-index:60!important;
+        flex-direction:column!important;flex-wrap:nowrap!important;align-items:stretch!important;gap:0!important;padding:0 0 24px!important;
+        overflow-x:hidden!important;overflow-y:auto;border-bottom:0!important;border-right:1px solid var(--line,#dce1e8);
         box-sizing:border-box;transform:translateX(-105%);transition:transform .22s ease}
       header.drawer-open{transform:none;box-shadow:4px 0 18px #0003}
-      header .toolbar-group{flex-wrap:wrap;border-right:0!important;padding-right:0!important}
+      header h1{margin:0!important;padding:20px 20px 14px;font-size:18px!important}
+      header .toolbar-end{display:flex;flex-direction:column;align-items:stretch!important;gap:0!important;margin-left:0!important;width:100%}
+      header .toolbar-group{display:flex;flex-direction:column;align-items:stretch!important;gap:2px!important;flex-wrap:nowrap;
+        padding:10px 12px 12px!important;margin:0;border-top:1px solid var(--line,#e5e7eb);border-right:0!important}
+      header .toolbar-group[aria-label]:not(.history-buttons)::before{content:attr(aria-label);padding:0 12px 4px;font-size:12px;
+        font-weight:600;letter-spacing:.3px;color:var(--faint,#9aa1ab)}
+      header .toolbar-group[role="search"]::before{content:"찾기";padding:0 12px 4px;font-size:12px;font-weight:600;letter-spacing:.3px;color:var(--faint,#9aa1ab)}
+      header .toolbar-group button,header .toolbar-group .btn,header .toolbar-group a,header .toolbar-group > label{
+        display:flex;align-items:center;justify-content:flex-start;width:100%;min-height:44px;margin:0;padding:0 12px;
+        border-radius:8px;font-size:15px;text-align:left;white-space:normal}
+      header .toolbar-group > label{gap:12px;color:var(--text,#111)}
+      header .toolbar-group input[type="checkbox"]{width:20px;height:20px;margin:0;flex:none}
+      header #btnAdd{justify-content:center;font-weight:600}
+      header .history-buttons{flex-direction:row;gap:8px!important;padding:0!important;border:0!important;margin-top:4px}
+      header .history-buttons button{flex:1;width:auto;height:44px;justify-content:center;font-size:20px;
+        border:1px solid var(--line-strong,#d3d8df)}
+      header .layout-picker{width:100%}
+      header #layoutMode{width:100%;max-width:none;min-height:44px;padding:0 12px;font-size:15px;text-align:left}
+      header .toolbar-group[aria-label="보기"]{display:grid;grid-template-columns:1fr auto;gap:2px 8px!important}
+      header .toolbar-group[aria-label="보기"]::before{grid-column:1/-1}
+      header .toolbar-group[aria-label="보기"] > label,header .toolbar-group[aria-label="보기"] > #btnFocus{grid-column:1/-1}
+      header #connDepth{min-height:44px;padding:0 8px;font-size:15px;border:1px solid var(--line-strong,#d3d8df);border-radius:8px;background:var(--surface,#fff)}
+      header .toolbar-group[role="search"] > label{justify-content:space-between;gap:10px}
+      header #statusFilter{flex:1;max-width:none;min-height:40px;font-size:15px}
+      header .search-wrap{width:100%}
+      header #nodeSearch{width:100%;min-height:44px;padding:0 12px;font-size:15px;border-radius:8px}
+      header #btnReset{color:var(--faint,#9aa1ab)}
+      header #linkSupport{color:var(--muted,#6b7280)}
+      header #btnUpdate{width:auto;min-height:44px;margin:12px 12px 0;padding:0 12px;justify-content:center;border:1px solid var(--line-strong,#d3d8df);
+        border-radius:8px;font-size:15px}
       aside{position:fixed!important;top:0;right:0;bottom:0;left:auto;height:100%;width:min(190px,44vw)!important;
         max-height:none!important;flex:none!important;z-index:60!important;border-top:0;border-left:1px solid #ddd;
         box-sizing:border-box;transform:translateX(105%);transition:transform .22s ease}

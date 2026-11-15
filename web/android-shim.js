@@ -19,11 +19,9 @@ window.__androidBack = function () {
 
 (function () {
   const DEFAULT_DIR = '/storage/emulated/0/Documents/인과편집기';
-  const ROOT = '/storage/emulated/0';
   const DIR_KEY = 'causal-android-data-folder';
   const OWN_FILE = /^(n\d+_.*|_경로)\.md$/;
   const HISTORY_FILE = /^\d{8}T\d{6}Z_[a-z0-9-]+\.json$/;
-  const RESERVED_DIRS = ['노드파일', '변경이력', '내부데이터'];
   const nativeOk = () => !!(window.Capacitor && window.Capacitor.nativePromise);
   const originalFetch = window.fetch.bind(window);
 
@@ -57,19 +55,6 @@ window.__androidBack = function () {
     const items = [];
     for (const name of names) items.push(await readJson(`${historyDir()}/${name}`));
     return items;
-  }
-
-  async function listJsonFiles(dir, depth, found) {
-    if (depth > 3 || found.length >= 300) return found;
-    const {dirs, files} = await native('list', {path: dir});
-    for (const f of files) {
-      if (/\.json$/i.test(f.name) && !f.name.startsWith('.') && f.name !== 'data-folder.json') found.push(f.path);
-    }
-    for (const d of dirs) {
-      if (d.name.startsWith('.') || RESERVED_DIRS.includes(d.name) || d.name === 'node_modules') continue;
-      await listJsonFiles(d.path, depth + 1, found);
-    }
-    return found;
   }
 
   async function handle(method, path, params, init) {
@@ -137,51 +122,37 @@ window.__androidBack = function () {
       }
       return reply(200, {ok: true, count: written.size});
     }
-    if (method === 'POST' && path === '/api/open') {
-      const base = String(readBody(init).name || '').split('/').pop();
-      if (!OWN_FILE.test(base)) return reply(400, {ok: false, error: '열 수 없는 파일입니다.'});
-      await native('openFile', {path: `${nodeDir()}/${base}`});
-      return reply(200, {ok: true});
-    }
-    if (method === 'GET' && path === '/api/folders') {
-      const current = params.get('path') || ROOT;
-      const {dirs} = await native('list', {path: current});
-      const list = dirs.filter(d => !d.name.startsWith('.') && d.name !== 'self')
-        .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
-        .map(d => ({name: d.name, path: d.path}));
-      // 위로: 내장 저장소 → /storage(저장소 목록, SD 카드 볼륨이 여기 보입니다). /storage는 맨 위라서 null(버튼 비활성)
-      const parent = current === '/storage' ? null
-        : current === ROOT ? '/storage'
-        : (current.slice(0, current.lastIndexOf('/')) || '/storage');
-      return reply(200, {ok: true, current, parent, dirs: list});
-    }
+    // 데이터 폴더: 현재 폴더 보기 / 바꾸기(바로 적용) / 기기 파일 탐색기로 고르기 / 폴더 안 노드 파일 개수
     if (method === 'GET' && path === '/api/data-folder') {
-      return reply(200, {ok: true, active: dataDir(), default: DEFAULT_DIR});
+      return reply(200, {ok: true, active: dataDir(), default: DEFAULT_DIR, custom: dataDir() !== DEFAULT_DIR});
     }
     if (method === 'POST' && path === '/api/data-folder') {
       const requested = String(readBody(init).path || '').trim();
       if (!requested) {
         try { localStorage.removeItem(DIR_KEY); } catch (e) {}
-        return reply(200, {ok: true, path: '', note: '기본 폴더로 되돌렸습니다.'});
+      } else {
+        await native('list', {path: requested});   // 폴더가 없거나 접근할 수 없으면 여기서 오류
+        try { localStorage.setItem(DIR_KEY, requested); } catch (e) {}
       }
-      await native('list', {path: requested});
-      try { localStorage.setItem(DIR_KEY, requested); } catch (e) {}
-      return reply(200, {ok: true, path: requested, note: '저장했습니다. 다음 저장부터 이 폴더를 씁니다.'});
+      return reply(200, {ok: true, active: dataDir(), custom: dataDir() !== DEFAULT_DIR});
     }
-    if (method === 'POST' && path === '/api/alive') {
-      return reply(200, {ok: true});
+    if (method === 'POST' && path === '/api/pick-folder') {
+      try { return reply(200, {ok: true, path: (await native('pickFolder')).path || ''}); }
+      catch (err) {
+        const msg = (err && err.message) || String(err);
+        if (!msg.includes('취소')) alert(msg);   // 취소가 아닌 실패(사용할 수 없는 위치 등)는 이유를 알려 줍니다
+        return reply(200, {ok: true, path: ''});
+      }
     }
-    if (method === 'GET' && path === '/api/project-json') {
-      const base = `${dataDir()}/`;
-      const files = await listJsonFiles(dataDir(), 0, []);
-      return reply(200, {ok: true, files: files.map(f => f.slice(base.length)).sort()});
-    }
-    if (method === 'GET' && path === '/api/project-json/read') {
-      const rel = params.get('path') || '';
-      if (rel.includes('..') || !/\.json$/i.test(rel)) return reply(404, {ok: false, error: '파일을 찾지 못했습니다.'});
-      const r = await native('readText', {path: `${dataDir()}/${rel}`});
-      if (!r.exists) return reply(404, {ok: false, error: '파일을 찾지 못했습니다.'});
-      return new Response(r.text, {status: 200, headers: {'Content-Type': 'application/json; charset=utf-8'}});
+    if (method === 'GET' && path === '/api/folder-info') {
+      const p = params.get('path') || '';
+      try {
+        const top = await native('list', {path: p});   // 고른 폴더에 아무것도 만들지 않고 살펴봅니다
+        const nodes = top.dirs.find(d => d.name === '노드파일');
+        if (!nodes) return reply(200, {ok: true, nodeFiles: 0});
+        const {files} = await native('list', {path: nodes.path});
+        return reply(200, {ok: true, nodeFiles: files.filter(f => OWN_FILE.test(f.name) && f.name !== '_경로.md').length});
+      } catch (err) { return reply(400, {ok: false, error: '폴더를 찾지 못했습니다.'}); }
     }
     return reply(404, {ok: false, error: '지원하지 않는 요청입니다.'});
   }
@@ -194,6 +165,27 @@ window.__androidBack = function () {
     if (!nativeOk()) return Promise.resolve(fail(new Error('안드로이드 앱 안에서만 동작합니다.')));
     return handle(method, u.pathname, u.searchParams, init).catch(fail);
   };
+
+  // PC 설치버전의 storage.js는 서버에 "살아 있음" 연결(/api/alive-stream)을 열어 둡니다. 앱에는 서버가 없으므로 아무 일도 하지 않는 연결로 바꿉니다.
+  const RealEventSource = window.EventSource;
+  window.EventSource = function (url, opt) {
+    if (String(url).startsWith('/api/')) return {close() {}, addEventListener() {}, removeEventListener() {}, readyState: 1};
+    return new RealEventSource(url, opt);
+  };
+
+  // "노드 md 파일 보기": PC는 새 탭(blob)으로 보여 주지만 앱에서는 기기의 텍스트 보기·편집 앱 선택창을 엽니다.
+  // 노드 파일을 먼저 저장한 뒤 그 파일을 엽니다. PC 코드보다 먼저 받도록 문서 단계에서 가로챕니다.
+  document.addEventListener('click', async (e) => {
+    if (!(e.target && e.target.closest && e.target.closest('#btnOpenMd'))) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    try {
+      const n = node(sel.id);
+      if (!n) return;
+      await persistNow();   // 파일이 최신 내용이 되도록 먼저 저장합니다
+      await native('openFile', {path: `${nodeDir()}/${fileName(n)}`});
+    } catch (err) { setFstat(`파일을 열지 못했습니다: ${(err && err.message) || err}`); }
+  }, true);
 
   // 시작할 때 파일 접근 권한을 확인합니다.
   document.addEventListener('DOMContentLoaded', async () => {
