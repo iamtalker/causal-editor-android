@@ -4,6 +4,14 @@
 
 `src/`는 PC 편집기([causal-editor](https://github.com/iamtalker/causal-editor)의 크롬 확장)와 같은 편집기에서 갈라져 나온 **이 저장소 자신의 복사본**입니다. 예전에는 PC 저장소의 설치버전 폴더에서 가져왔지만 설치버전을 없애면서 이 저장소 안으로 옮겼습니다. 그래서 PC 편집기에서 기능을 고치면 같은 수정을 `src/`에도 직접 반영해야 합니다(자동으로 따라오지 않습니다).
 
+**동기화 확인**: `npm run check-drift`는 PC 원본(`../인과편집기/크롬확장/`)과 `src/`의 화면 파일을 비교해 바뀐 줄 수를 보여 줍니다. 파일은 고치지 않습니다. PC 쪽을 고친 뒤 실행해 보고, 아래 **의도한 차이** 말고 다른 차이가 있으면 `src/`에 반영합니다. 다른 위치의 PC 원본은 `PC_DIR` 환경 변수로 지정합니다.
+
+의도한 차이(안드로이드 쪽에서 일부러 다르게 둔 부분):
+- `storage.js`: 안드로이드는 `/api/*` 요청을 보내는 옛 서버 방식을 그대로 둡니다. `android-shim.js`가 이 요청을 기기 파일 작업으로 바꿉니다. PC의 IndexedDB·폴더 저장 코드로 바꾸면 기기 저장이 깨집니다.
+- `app.js`: 폴더 설정 문구와 `connectFolder` 동작이 안드로이드 저장 방식에 맞춰져 있습니다.
+- `index.html`: PC의 "데이터를 안전하게 보관하세요" 안내창(`folderTipDlg`)은 안드로이드에 없습니다.
+- `md-graph.js`는 두 쪽이 같아야 합니다.
+
 ## 구성
 
 | 경로 | 내용 |
@@ -14,6 +22,7 @@
 | `scripts/copy-web.js` | `src/`의 화면 파일을 `www/`로 복사하고 안드로이드 파일을 끼워 넣으며, `native/`의 자바 파일을 Gradle 프로젝트로 복사 |
 | `android/` | Gradle 안드로이드 프로젝트 (Capacitor가 만든 프로젝트) |
 | `capacitor.config.json` | 앱 ID `com.causaleditor.app`, 앱 이름 "인과 편집기", 웹 폴더 `www` |
+| `scripts/check-drift.js` | PC 원본과 `src/`의 화면 파일 차이를 보고만 함 (`npm run check-drift`) |
 | `www/` | `copy-web.js`가 만드는 웹 파일 모음 (Git에 올리지 않음) |
 
 `native/`의 자바 파일이 원본이고, `android/app/src/main/java/com/causaleditor/app/`의 같은 파일은 `copy-web.js`가 복사한 결과입니다. 자바 파일을 고칠 때는 `native/`에서 고칩니다.
