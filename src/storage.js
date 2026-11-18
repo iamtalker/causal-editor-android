@@ -2,7 +2,8 @@
 // 노드 파일·그래프 JSON·버전 기록은 편집기를 띄운 도우미 서버(server.js)가 데이터 폴더의 노드파일/·내부데이터/·변경이력/ 에 저장하고 읽습니다.
 // 화면 코드는 저장 방식을 신경 쓰지 않습니다. 폴더 방식에서 쓰는 이름(mode 'folder' 등)을 그대로 따릅니다.
 const Store = (function () {
-  const OWN_FILE = /^(n\d+_.*|_경로)\.md$/;
+  // 동기화 도구의 충돌 사본(예: n0002_부자.sync-conflict-....md)은 노드 파일이 아니므로 읽지도 지우지도 않습니다.
+  const OWN_FILE = /^(?!.*\.sync-conflict-)(_경로|[^_].*)\.md$/;
   const S = {mode: 'folder', folderName: '', folderPath: '', defaultPath: '', custom: false, handle: null, folderReady: true};
   let alive = null;
 
