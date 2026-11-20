@@ -6,11 +6,14 @@
 // 끄는 동안에는 노드 위치를 바꾸고 프레임마다 다시 그려서 화살표가 따라오게 합니다 (PC의 mousemove와 같음).
 //   손을 떼면 위치를 저장합니다. 터치 대상은 손가락을 댄 요소로 고정되므로 다시 그려도 끌기가 끊기지 않습니다.
 // 추가: 두 손가락으로 확대·축소(핀치), 빈 곳 두 번 탭으로 노드 추가, 한 손가락 화면 밀기.
-//  - 탭(움직임 없이 뗌): 원래 마우스 클릭 흐름(선택, 화살표 연결 등)을 그대로 실행합니다.
+//  - 탭(움직임 없이 뗌): 원래 마우스 클릭 흐름(선택, 화살표 연결 등)을 그대로 실행합니다. 노드는 선택만 합니다.
+//  - 노드 길게 누르기: 그 자리에 편집창을 엽니다.
+//  - 선택한 노드 오른쪽의 손잡이를 다른 노드로 끌어 놓기: 화살표를 연결합니다.
 // 폰 화면 서랍: 위쪽 툴바는 왼쪽 가장자리에서 오른쪽으로 밀면 나오고, 하단 패널은 오른쪽 가장자리에서 왼쪽으로 밀면 나옵니다.
 //   바깥(어두운 부분)을 누르면 닫힙니다. PC 화면에는 영향이 없습니다.
 (function () {
   const MOVE_SLOP = 10;          // 이 거리(px)보다 적게 움직이면 탭으로 봅니다.
+  const LONG_PRESS_MS = 450;     // 노드를 이만큼 누르고 있으면 편집창을 엽니다.
   const DOUBLE_TAP_MS = 320, DOUBLE_TAP_PX = 28;
   const MIN_ZOOM = 0.2, MAX_ZOOM = 3;   // index.html의 휠 확대 범위와 같습니다.
   const EDGE_PX = 28;            // 화면 가장자리에서 이 안쪽으로 시작해야 서랍이 열립니다.
@@ -186,6 +189,11 @@
   window.addEventListener('touchstart', (e) => {
     edge = null;
     drawerClose = null;
+    // 화살표 연결 손잡이: 화면 가장자리 근처에 있어도 서랍보다 먼저 받습니다.
+    if (e.touches.length === 1 && e.target === linkHandle && linkHandle.style.display !== 'none') {
+      startLink(e.touches[0]);
+      return;
+    }
     const side = openSide();
     if (side && e.touches.length === 1) {
       const el = drawerEls()[side === 'left' ? 'header' : 'aside'];
@@ -219,6 +227,8 @@
       const p = svgPoint({clientX: t.clientX, clientY: t.clientY});
       gesture = {kind: 'node', el: ng, node: n, dx: p.x - n.x, dy: p.y - n.y,
         x0: t.clientX, y0: t.clientY, moved: false, target};
+      const g = gesture;
+      g.timer = setTimeout(() => longPress(g), LONG_PRESS_MS);   // 움직이지 않고 오래 누르면 편집창을 엽니다
     } else if (!target.closest('[data-edge]')) {
       gesture = {kind: 'pan', stage, left: stage.scrollLeft, top: stage.scrollTop,
         x0: t.clientX, y0: t.clientY, moved: false, target};
@@ -259,7 +269,10 @@
     e.preventDefault();
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
+    if (gesture.kind === 'link') { moveLink(t); return; }
+    if (gesture.kind === 'done') return;   // 길게 눌러 편집창을 연 뒤의 움직임은 무시합니다
     if (!gesture.moved && Math.hypot(t.clientX - gesture.x0, t.clientY - gesture.y0) < MOVE_SLOP) return;
+    clearTimeout(gesture.timer);
     gesture.moved = true;
     if (gesture.kind === 'tap') gesture.kind = 'pan';   // 화살표 위에서 끌기 시작 = 화면 밀기
     if (gesture.kind === 'node') {
@@ -285,10 +298,13 @@
     if (e.touches.length === 0) busy = false;
     if (busy) return;
     const g = gesture;
-    if (!g || e.touches.length > 0) { gesture = null; return; }
+    if (!g || e.touches.length > 0) { if (g) clearTimeout(g.timer); gesture = null; endLink(null); return; }
     gesture = null;
+    clearTimeout(g.timer);
     e.preventDefault();          // 손을 뗀 뒤 브라우저가 따로 만드는 클릭을 막습니다.
     const t = e.changedTouches[0];
+    if (g.kind === 'link') { endLink(t, g.from); return; }
+    if (g.kind === 'done') return;   // 길게 눌러 이미 편집창을 열었습니다
     if (g.moved && g.kind === 'node') {
       save();                    // 새 위치 저장 (실행 취소 기록 포함)
       render();                  // 화살표와 화면 전체를 다시 그립니다
@@ -308,15 +324,106 @@
     } else {
       lastTap = null;
     }
-    // 탭: 원래 마우스 흐름을 실행합니다. 이 시점에는 아직 그래프를 다시 그리지 않았으므로 대상이 남아 있습니다.
-    const wasPending = !!pendingConnectionSource;   // 연결 모드에서 누른 탭이면 편집으로 가지 않습니다.
-    // 흐름 모드·연결 모드에서 중심 노드를 처음 고르는 탭은 고르기만 합니다(편집창이 뜨지 않게).
+    // 탭: 원래 마우스 흐름(선택, 화살표 연결 등)을 실행합니다. 노드를 탭하면 선택만 하고 편집창은 길게 눌러야 열립니다.
+    // 이 시점에는 아직 그래프를 다시 그리지 않았으므로 대상이 남아 있습니다.
+    fire('mousedown', t.clientX, t.clientY, g.target);
+    fire('mouseup', t.clientX, t.clientY, window);
+  }, {passive: false});
+
+  // ---------- 길게 누르기: 노드 편집 ----------
+  // 노드를 움직이지 않고 LONG_PRESS_MS 동안 누르면 선택하고 그 자리에 편집창(제목·메모·진행 상태)을 엽니다.
+  function longPress(g) {
+    if (gesture !== g || g.moved || g.kind !== 'node') return;
+    g.kind = 'done';
+    const t = {clientX: g.x0, clientY: g.y0};
+    const wasPending = !!pendingConnectionSource;   // 연결 버튼으로 결과 노드를 고르는 중이면 연결만 합니다
+    // 흐름 모드·연결 모드에서 중심 노드를 처음 고르는 누르기는 고르기만 합니다.
     const picking = (typeof connMode !== 'undefined' && connMode && !connNodeId) || (typeof focusMode !== 'undefined' && focusMode && !focusNodeId);
     fire('mousedown', t.clientX, t.clientY, g.target);
     fire('mouseup', t.clientX, t.clientY, window);
-    // 노드를 탭하면 선택하고, 그 자리에서 바로 편집창을 엽니다. PC에서 노드를 누르면 오른쪽 패널로 바로 고치는 것과 같게 만든 동작입니다.
-    if (g.kind === 'node' && !wasPending && !picking) editNodeAt(g.node, t);
-  }, {passive: false});
+    if (wasPending || picking) return;
+    try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) { /* 진동이 없는 기기 */ }
+    editNodeAt(g.node, t);
+  }
+  // 길게 누르면 브라우저가 오른쪽 클릭 메뉴(contextmenu)를 띄웁니다. 노드 위에서는 편집창을 대신 열고 메뉴는 막습니다.
+  window.addEventListener('contextmenu', (e) => {
+    if (!gesture || (gesture.kind !== 'node' && gesture.kind !== 'done' && gesture.kind !== 'link')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (gesture.kind === 'node' && !gesture.moved) { clearTimeout(gesture.timer); longPress(gesture); }
+  }, true);
+
+  // ---------- 끌어서 화살표 연결 ----------
+  // 노드를 선택하면 오른쪽 가장자리에 둥근 손잡이가 나타납니다. 손잡이를 다른 노드까지 끌어 놓으면 화살표가 생깁니다.
+  // 노드 몸통을 끌면 지금처럼 노드가 움직입니다. 연결은 index.html의 addEdge를 그대로 씁니다(양방향 허용 설정 등 같은 규칙).
+  const HANDLE = 34;
+  const linkHandle = document.createElement('div');
+  linkHandle.id = 'touchLinkHandle';
+  linkHandle.title = '끌어서 화살표 연결';
+  linkHandle.textContent = '→';
+  linkHandle.style.cssText = `display:none;position:fixed;width:${HANDLE}px;height:${HANDLE}px;margin:-${HANDLE / 2}px 0 0 -${HANDLE / 2}px;` +
+    'z-index:58;border-radius:50%;background:#2d6cdf;color:#fff;font-size:18px;line-height:' + HANDLE + 'px;text-align:center;' +
+    'box-shadow:0 2px 8px #0004;touch-action:none;user-select:none;-webkit-user-select:none;';
+  (document.body || document.documentElement).appendChild(linkHandle);
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const linkLayer = document.createElementNS(NS, 'svg');
+  linkLayer.style.cssText = 'display:none;position:fixed;inset:0;width:100%;height:100%;z-index:57;pointer-events:none;overflow:visible';
+  linkLayer.innerHTML = '<defs><marker id="touchLinkArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">' +
+    '<path d="M0,0L10,5L0,10z" fill="currentColor"/></marker></defs>' +
+    '<line stroke="currentColor" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#touchLinkArrow)"/>';
+  const linkLine = linkLayer.querySelector('line');
+  (document.body || document.documentElement).appendChild(linkLayer);
+
+  // 선택한 노드의 오른쪽 가장자리 가운데(화면 좌표). 노드가 화면에 없으면 null.
+  function handleSpot() {
+    if (sel.type !== 'node' || sel.id == null || pendingConnectionSource || isDrawerOpen()) return null;
+    if (typeof inlineEditor !== 'undefined' && inlineEditor) return null;   // 편집창을 가리지 않게 숨깁니다
+    const n = findNode(sel.id);
+    if (!n || !svg.querySelector('[data-node="' + n.id + '"]')) return null;   // 필터 등으로 안 보이는 노드
+    const r = svg.getBoundingClientRect(), D = dims();
+    const x = r.left + (n.x + D.w - viewMinX) * zoom + HANDLE / 2 + 4;
+    const y = r.top + (n.y + D.h / 2 - viewMinY) * zoom;
+    const s = stageEl().getBoundingClientRect();
+    if (x < s.left || x > s.right || y < s.top || y > s.bottom) return null;
+    return {x, y};
+  }
+  // 손잡이는 화면을 밀거나 확대해도 노드를 따라가야 해서 프레임마다 자리를 맞춥니다.
+  function placeHandle() {
+    if (!(gesture && gesture.kind === 'link')) {
+      const p = handleSpot();
+      if (p) { linkHandle.style.left = p.x + 'px'; linkHandle.style.top = p.y + 'px'; linkHandle.style.display = 'block'; }
+      else linkHandle.style.display = 'none';
+    }
+    requestAnimationFrame(placeHandle);
+  }
+  requestAnimationFrame(placeHandle);
+
+  const nodeUnder = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const ng = el && el.closest && el.closest('#stage [data-node]');
+    return ng ? ng.dataset.node : null;
+  };
+  function startLink(t) {
+    gesture = {kind: 'link', from: sel.id, x0: parseFloat(linkHandle.style.left), y0: parseFloat(linkHandle.style.top)};
+    linkLine.setAttribute('x1', gesture.x0 - HANDLE / 2); linkLine.setAttribute('y1', gesture.y0);
+    moveLink(t);
+    linkLayer.style.display = 'block';
+  }
+  function moveLink(t) {
+    const target = nodeUnder(t.clientX, t.clientY);
+    const ok = target && String(target) !== String(gesture.from);
+    linkLayer.style.color = ok ? '#16a34a' : '#2d6cdf';   // 결과 노드 위에 오면 초록색
+    linkLine.setAttribute('x2', t.clientX); linkLine.setAttribute('y2', t.clientY);
+  }
+  function endLink(t, from) {
+    linkLayer.style.display = 'none';
+    if (!t) return;
+    const to = nodeUnder(t.clientX, t.clientY);
+    if (!to || String(to) === String(from)) { setFstat('다른 노드 위에서 손을 떼면 화살표가 연결됩니다.'); return; }
+    const toNode = findNode(to);
+    addEdge(from, toNode ? toNode.id : to);
+  }
 
   // 탭한 자리에서 노드를 고칩니다. PC의 "노드 더블클릭"과 같은 자리 편집창(제목·메모·진행 상태)을 엽니다.
   // PC 코드에 자리 편집창이 없는 예전 버전이면 사이드 패널의 입력칸으로 갑니다.
@@ -393,6 +500,8 @@
   setInterval(updateConnectBtn, 250);
 
   window.addEventListener('touchcancel', (e) => {
+    if (gesture) clearTimeout(gesture.timer);
+    endLink(null);
     gesture = null;
     edge = null;
     drawerClose = null;
