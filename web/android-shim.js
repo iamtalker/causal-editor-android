@@ -20,7 +20,8 @@ window.__androidBack = function () {
 (function () {
   const DEFAULT_DIR = '/storage/emulated/0/Documents/인과편집기';
   const DIR_KEY = 'causal-android-data-folder';
-  const OWN_FILE = /^(n\d+_.*|_경로)\.md$/;
+  // src/storage.js와 같은 규칙: 제목 파일과 _경로.md만 다루고 동기화 충돌 사본은 제외합니다.
+  const OWN_FILE = /^(?!.*\.sync-conflict-)(_경로|[^_].*)\.md$/;
   const HISTORY_FILE = /^\d{8}T\d{6}Z_[a-z0-9-]+\.json$/;
   const nativeOk = () => !!(window.Capacitor && window.Capacitor.nativePromise);
   const originalFetch = window.fetch.bind(window);
