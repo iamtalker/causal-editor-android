@@ -389,11 +389,17 @@
     return {x, y};
   }
   // 손잡이는 화면을 밀거나 확대해도 노드를 따라가야 해서 프레임마다 자리를 맞춥니다.
+  // 이 파일은 app.js보다 먼저 실행됩니다. app.js가 아직 sel·svg 같은 값을 만들기 전에 프레임이 오면 오류가 나므로,
+  // 오류가 나도 다음 프레임은 꼭 예약해 반복이 멈추지 않게 합니다.
   function placeHandle() {
-    if (!(gesture && gesture.kind === 'link')) {
-      const p = handleSpot();
-      if (p) { linkHandle.style.left = p.x + 'px'; linkHandle.style.top = p.y + 'px'; linkHandle.style.display = 'block'; }
-      else linkHandle.style.display = 'none';
+    try {
+      if (!(gesture && gesture.kind === 'link')) {
+        const p = handleSpot();
+        if (p) { linkHandle.style.left = p.x + 'px'; linkHandle.style.top = p.y + 'px'; linkHandle.style.display = 'block'; }
+        else linkHandle.style.display = 'none';
+      }
+    } catch (e) {
+      linkHandle.style.display = 'none';
     }
     requestAnimationFrame(placeHandle);
   }
